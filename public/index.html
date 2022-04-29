@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="css/reset.css" />
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="css/style.css" />
+
+</head>
+<body>
+<!-- コンテンツ表示画面 -->
+<div id="container">
+    <div>名前<input type="text" id="username"></div>
+    <div id="inputarea">
+        <!-- メッセージ入力 -->
+        <textarea id="textarea" cols="20" rows="3"></textarea>
+        <!-- 送信ボタン -->
+        <button id="send">送信</button>
+        <div><input type="file" name="" id="fileButton" /></div>
+        <button id=upload>アップ</button>
+    </div>
+    <!-- チャット文字をリスト表示 -->
+    <div id="output"></div>
+</div>
+
+<!-- 以下JavaScript領域 -->
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+<!-- <script src="js/main.js"></script>  -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.1.0/firebase-app.js";
+      
+    import {
+      getDatabase,
+      ref,
+      push,
+      set,
+      onChildAdded,
+      remove,
+      onChildRemoved,
+      child,
+      onValue,
+      get,
+      update,
+      onChildChanged,
+    } from "https://www.gstatic.com/firebasejs/9.1.0/firebase-database.js";
+
+    import { getStorage,uploadBytes} from 'https://www.gstatic.com/firebasejs/9.6.11/firebase-storage.js'
+    
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+        apiKey: "AIzaSyDP5rW-2mzG-rb701h1CsPrR0LspZwQr48",
+        authDomain: "chatapp-765cc.firebaseapp.com",
+        databaseURL: "https://chatapp-765cc-default-rtdb.firebaseio.com",
+        projectId: "chatapp-765cc",
+        storageBucket: "chatapp-765cc.appspot.com",
+        messagingSenderId: "922563960202",
+        appId: "1:922563960202:web:f01418e0506444bd5fbc73"
+        };
+
+// Firebaseを起動
+    const app = initializeApp(firebaseConfig);
+    const db  = getDatabase(app); //RealtimeDBに接続
+    const dbChat = ref(db,"chat"); //RealtimeDB内の"chat"を使う(参照している)
+    // const database = firebase.database()
+
+//送信されたらデータをDBに格納する処理  
+$('#send').on('click',function(){
+        const msg = {
+            username: $('#username').val(),
+            text: $('#textarea').val(),  
+        }
+        // バリデーションをかける（入力なしの場合は送信が利かないようにする
+        console.log(msg);
+        if(!Object.keys(msg.username).length || !Object.keys(msg.text).length){
+            alert('コメントを入力してください');
+            } else {
+                const newPostRef = push(dbChat);
+                set(newPostRef,msg);
+                $('#username').val('');
+                $('#textarea').val('');
+            }
+ })
+
+// 受信処理
+onChildAdded(dbChat, function(data){
+    const msg = data.val();
+    const key = data.key;
+    console.log(key);
+    let html = `
+    <div class=${key}>
+        <p calss=username>${msg.username}</p>
+        <p class=text>${msg.text}</p>
+        <button class=delete>削除</button>
+        <button class=edit>編集</button>
+        <button class=reply>返信</button>
+        
+    </div>    
+    `;
+    $('#output').append(html);
+ })
+
+// コメントを個別に削除できるようにする 
+$(document).on('click','.delete',function(){    
+   
+    const deleteKey = $(this).parent().attr('class');
+    console.log(deleteKey);
+    const dbChatDelete= ref(db,`chat/${deleteKey}`);
+    remove(dbChatDelete);
+    
+    // DBから削除したら、画面上もそのコメントを削除する
+         $(this).parent().find('.text').html('削除済み');       
+         $(this).remove();
+
+})   
+
+// 編集ボタンを押したらそのコメントを個別に編集・更新できるようにする 
+$(document).on('click','.edit',function(){    
+    //押した編集ボタンの固有Keyを取得しDBを参照
+   const editKey = $(this).parent().attr('class');
+   console.log(editKey);
+   const dbChatEdit= ref(db,`chat/${editKey}`);
+   
+    //既存のテキストを入力エリアに呼び出す
+    get(dbChatEdit).then((snapshot) => {
+        const editing = snapshot.val();
+        $('#username').val(editing.username);
+        $('#textarea').val(editing.text);
+    } );
+   
+    // 入力エリアの隣に編集の「保存」ボタンを作る
+    let html = `<button id=save>保存</button>`;
+    $('#inputarea').append(html);
+
+    //入力エリアを更新して「保存」ボタンを押したら更新かける
+   $('#save').on('click',function(){
+    //修正メッセージをmsgと定義    
+    const msg = {
+        username: $('#username').val(),
+        text: $('#textarea').val(),  
+    }
+    
+    // DBを更新
+    update(dbChatEdit,msg);
+    $('#username').val('');     
+    $('#textarea').val('');
+    });
+
+   
+   // DBを更新したら、画面上もそのコメントを反映させる
+   onChildChanged(dbChat, function(data){
+    const msg = data.val();
+    const key = data.key;
+
+    console.log(msg);
+    console.log(key);
+    
+    $(`.${key}`).children('.username').html(msg.username);
+    $(`.${key}`).children('.text').html(msg.text);
+    })
+})   
+
+// 参照（Reply）ボタンを押したらそのコメントに対して返信できるようにする 
+$(document).on('click','.reply',function(){
+    //押した返信ボタンの固有Keyを取得しDBを参照
+    const replyKey = $(this).parent().attr('class');
+    console.log(replyKey);
+    const dbChatReply= ref(db,`chat/${replyKey}`);
+    
+        //返信元テキストを呼び出す
+        get(dbChatReply).then((snapshot) => {
+            const reply = snapshot.val();
+
+        //参照用テキストを入力エリア上部に小さく表示
+            let html = `
+        <div class=${replyKey} id=rep>
+            <p calss=username style="font-size:10px">${reply.username}</p>
+            <p class=text style="font-size:10px">${reply.text}</p>
+            <button id=replyBtn><i class="bi bi-reply"></i></button>
+        </div>    
+        `;
+        $('#container').prepend(html);
+    })  
+
+    //入力エリアを更新して「返信」ボタンを押したら更新かける
+    $(document).on('click','#replyBtn', function(){
+        alert("クリックされました");
+        //入力エリアへの入力をmsgと定義    
+        const msg = {
+            username: $('#username').val(),
+            text: $('#textarea').val(),  
+        }
+        console.log(msg);
+
+        // DBを更新
+        const repPostRef = push(dbChat);
+        set(repPostRef,msg);
+        $('#username').val('');
+        $('#textarea').val('');
+        
+        // 画面上もそのコメントを反映させる 
+        onChildAdded(dbChat, function(data){
+            const msg = data.val();
+            const key = data.key;
+            console.log(key);
+
+            //返信元テキストを呼び出し、画面に表示
+            get(dbChatReply).then((snapshot) => {
+                    const reply = snapshot.val();
+                let html = `
+                <div class=${replyKey} id=rep>
+                        <p calss=username style="font-size:10px">${reply.username}</p> 
+                        <p class=text style="font-size:10px">${reply.text}</p>
+                <div class=${key}>
+                    <p calss=username>${msg.username}</p>
+                    <p class=text>${msg.text}</p>
+                    <button class=delete>削除</button>
+                    <button class=edit>編集</button>
+                    <button class=reply>返信</button>
+                </div>    
+                `;
+                $('#output').append(html);
+            })
+        })  
+    })    
+})
+
+// firebase Storageを使ってファイルをUpload
+$('#upload').on('click',function(){
+  //ファイルの取得
+    const storage = getStorage();
+    //ファイルの参照
+    const storageRef = ref(storage,'imgs/clover2.png');
+    alert('Uploaded a blob or file!');
+    uploadBytes(storageRef, file).then((snapshot) => {
+    
+});
+}); 
+
+
+
+// // ストレージ変数を定義
+//     const storage = getStorage();
+
+//     // Create a reference to 'mountains.jpg'
+//     const picRef = ref(storage, 'spage4.png');
+
+// // Create a reference to 'images/mountains.jpg'
+// const mountainImagesRef = ref(storage, 'images/mountains.jpg');
+
+// // While the file names are the same, the references point to different files
+// mountainsRef.name === mountainImagesRef.name;           // true
+// mountainsRef.fullPath === mountainImagesRef.fullPath;   // false 
+
+
+</script>
+
+</body>
+</html>
